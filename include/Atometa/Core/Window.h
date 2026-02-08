@@ -31,6 +31,10 @@ namespace Atometa {
         
         uint32_t GetWidth() const { return m_Data.Width; }
         uint32_t GetHeight() const { return m_Data.Height; }
+
+        float GetAspectRatio() const {
+            return static_cast<float>(m_Data.Width) / static_cast<float>(m_Data.Height);
+        }
         
         void SetVSync(bool enabled);
         bool IsVSync() const { return m_Data.VSync; }

@@ -19,7 +19,7 @@ BEGIN
         BLOCK "040904B0"  // English (United States) + Unicode
         BEGIN
             VALUE "CompanyName", "Atometa Team"
-            VALUE "FileDescription", "3D Chemistry Simulation Engine"
+            VALUE "FileDescription", "3D Chemistry Engine"
             VALUE "FileVersion", "0.1.0.0"
             VALUE "InternalName", "Atometa"
             VALUE "LegalCopyright", "Copyright © 2026 Atometa Team"

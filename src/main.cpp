@@ -3,7 +3,7 @@
 
 class AtometaApp : public Atometa::Application {
 public:
-    AtometaApp() : Application("Atometa - 3D Chemistry Simulator") {
+    AtometaApp() : Application("Atometa") {
         ATOMETA_INFO("AtometaApp initialized");
     }
 
