@@ -1,6 +1,7 @@
 {
   "name": "atometa",
   "version": "0.1.0",
+  "description": "3D Chemistry Engine",
   "dependencies": [
     {
       "name": "glfw3",
@@ -14,6 +15,7 @@
       "features": [ "glfw-binding", "opengl3-binding" ]
     },
     "eigen3",
-    "stb"
+    "stb",
+    "gtest"
   ]
 }
