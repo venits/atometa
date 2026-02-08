@@ -1,0 +1,83 @@
+name: 🐛 Bug Report
+description: Report a bug or unexpected behavior in Atometa
+title: "[BUG] "
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill in as much detail as possible.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+      placeholder: "Example: The molecule doesn't render correctly when loading a PDB file."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: List the steps to reproduce the bug.
+      placeholder: |
+        1. Open Atometa
+        2. Load file 'example.xyz'
+        3. Rotate the camera
+        4. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Atometa Version / Commit
+      description: Which version or commit hash are you using?
+      placeholder: "v0.1.0 or commit abc1234"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      placeholder: "Windows 11 / Ubuntu 24.04 / macOS 15"
+    validations:
+      required: true
+
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU / Graphics Driver (if relevant)
+      placeholder: "NVIDIA GTX 1660 / Intel HD / AMD RX 580"
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Input Files / Screenshots / Logs
+      description: Drag & drop any relevant files (XYZ/PDB, screenshots, console logs, error messages).
+      placeholder: "Upload example file or error log here"
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other info (e.g. performance issues, used shader, molecule size, etc.)
