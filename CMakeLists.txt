@@ -79,16 +79,17 @@ find_package(glm CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(Eigen3 CONFIG)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 # ============================================================================
 # Source Files
 # ============================================================================
 
 file(GLOB ATOMETA_SOURCES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
-    src/*.cpp src/core/*.cpp src/renderer/*.cpp src/ui/*.cpp src/chemistry/*.cpp
+    src/*.cpp src/core/*.cpp src/renderer/*.cpp src/ui/*.cpp src/scene/* src/physics/*.cpp src/python/*.cpp src/chemistry/*.cpp
 )
 
 file(GLOB ATOMETA_HEADERS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
-    include/*.h include/Atometa/Core/*.h include/Atometa/Renderer/*.h include/Atometa/UI/*.h include/Atometa/Chemistry/*.h
+    include/*.h include/Atometa/Core/*.h include/Atometa/Renderer/*.h include/Atometa/UI/*.h include/Atometa/Scene/*.h include/Atometa/Physics/*.h include/Atometa/GPU/*.h include/Atometa/Quantum/*.h include/Atometa/Python/*.h include/Atometa/Chemistry/*.h 
 )
 
 # ============================================================================
@@ -96,6 +97,19 @@ file(GLOB ATOMETA_HEADERS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 # ============================================================================
 
 add_library(AtometaLib STATIC ${ATOMETA_SOURCES} ${ATOMETA_HEADERS})
+
+if(Python3_FOUND)
+    message(STATUS "Python3 found: ${Python3_EXECUTABLE}")
+    message(STATUS "Python include dirs: ${Python3_INCLUDE_DIRS}")
+    message(STATUS "Python libraries: ${Python3_LIBRARIES}")
+
+    # Add to include paths for ALL targets that need Python
+    target_include_directories(AtometaLib PUBLIC ${Python3_INCLUDE_DIRS})
+
+    # If you make a separate module for Python bindings later:
+    # target_link_libraries(atometa_python PRIVATE Python3::Python)
+endif()
+
 
 target_include_directories(AtometaLib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -137,11 +151,11 @@ endif()
 if(WIN32)
     add_executable(Atometa WIN32
         src/main.cpp
-        src/atometa.rc
+        src/Atometa.rc
     )
 
     set_target_properties(Atometa PROPERTIES
-        WIN32_EXECUTABLE FALSE
+        WIN32_EXECUTABLE TRUE
     )
 else()
     add_executable(Atometa src/main.cpp)
@@ -158,6 +172,50 @@ add_custom_command(TARGET Atometa POST_BUILD
         ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:Atometa>/assets
     COMMENT "Copying assets"
 )
+
+# ============================================================================
+# Certificate-Based Code Signing (Windows)
+# ============================================================================
+
+set(ATOMETA_CODE_SIGN ON)
+
+if(WIN32 AND ATOMETA_CODE_SIGN)
+
+    set(CODE_SIGN_CERT "C:/atometa/certificates/atometa_dev.pfx")
+    set(CODE_SIGN_PASSWORD "1234")
+
+    if(EXISTS "${CODE_SIGN_CERT}")
+
+        find_program(SIGNTOOL_EXECUTABLE
+            NAMES signtool.exe
+            PATHS
+                "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64"
+                "C:/Program Files (x86)/Windows Kits/10/bin"
+        )
+
+        if(SIGNTOOL_EXECUTABLE)
+            add_custom_command(TARGET Atometa POST_BUILD
+                COMMAND "${SIGNTOOL_EXECUTABLE}" sign
+                    /f "${CODE_SIGN_CERT}"
+                    /p "${CODE_SIGN_PASSWORD}"
+                    /fd SHA256
+                    /tr "http://timestamp.digicert.com"
+                    /td SHA256
+                    /v
+                    "$<TARGET_FILE:Atometa>"
+                COMMENT "Signing Atometa executable"
+                VERBATIM
+            )
+            message(STATUS "Code signing enabled with certificate: ${CODE_SIGN_CERT}")
+        else()
+                message(STATUS "signtool.exe not found - code signing disabled")
+        endif()
+
+    else()
+        message(WARNING "Certificate not found at: ${CODE_SIGN_CERT}")
+    endif()
+
+endif()
 
 # ============================================================================
 # Summary
