@@ -1,29 +1,36 @@
 #include "Atometa/Chemistry/Atom.h"
+#include "Atometa/Chemistry/PeriodicTable.h"
 
 namespace Atometa {
-    Atom::Atom(AtomType type, const glm::vec3& pos)
-        : Type(type), Position(pos), Velocity(0.0f), Force(0.0f) {
-        
-        switch (type) {
-            case AtomType::Hydrogen:
-                Mass = 1.008f; Radius = 0.25f; Symbol = "H"; break;
-            case AtomType::Carbon:
-                Mass = 12.011f; Radius = 0.70f; Symbol = "C"; break;
-            case AtomType::Nitrogen:
-                Mass = 14.007f; Radius = 0.65f; Symbol = "N"; break;
-            case AtomType::Oxygen:
-                Mass = 15.999f; Radius = 0.60f; Symbol = "O"; break;
-        }
-    }
 
-    void Atom::Update(float dt) {
-        glm::vec3 accel = Force / Mass;
-        Velocity += accel * dt;
-        Position += Velocity * dt;
-        Force = glm::vec3(0.0f);
+    Atom::Atom(AtomType type, const glm::vec3& position)
+        : Type(type), Position(position), Velocity(0.0f), Force(0.0f) {
+        
+        // Get properties from periodic table
+        const ElementData& element = PeriodicTable::GetElement(static_cast<uint8_t>(type));
+        
+        Symbol = element.Symbol;
+        Mass = element.AtomicMass;
+        Radius = element.CovalentRadius;
+        Color = element.CPKColor;
     }
 
     void Atom::ApplyForce(const glm::vec3& force) {
         Force += force;
     }
+
+    void Atom::Update(float deltaTime) {
+        // Verlet integration
+        glm::vec3 acceleration = Force / Mass;
+        
+        // Update velocity
+        Velocity += acceleration * deltaTime;
+        
+        // Update position
+        Position += Velocity * deltaTime;
+        
+        // Reset force for next frame
+        Force = glm::vec3(0.0f);
+    }
+
 }

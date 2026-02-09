@@ -20,6 +20,7 @@ namespace Atometa {
         float Mass;
         float Radius;
         std::string Symbol;
+        glm::vec3 Color;  // CPK color
 
         Atom(AtomType type, const glm::vec3& pos = glm::vec3(0.0f));
         void Update(float deltaTime);
