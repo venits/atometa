@@ -2,12 +2,12 @@
 
 #include "Core.h"
 #include "Window.h"
-#include "imgui.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
 
 namespace Atometa {
     class ImGuiLayer;
+    class Scene;
+    class Shader;
+    class Camera;
 
     class Application {
     public:
@@ -18,11 +18,17 @@ namespace Atometa {
         void Close();
 
         Window& GetWindow() { return *m_Window; }
+        Scene& GetScene();
+        
         static Application& Get() { return *s_Instance; }
 
     private:
         Scope<Window> m_Window;
         Scope<ImGuiLayer> m_ImGuiLayer;
+        Scope<Scene> m_Scene;
+        Scope<Shader> m_Shader;
+        Scope<Camera> m_Camera;
+        
         bool m_Running = true;
         float m_LastFrameTime = 0.0f;
         static Application* s_Instance;

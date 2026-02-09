@@ -3,6 +3,21 @@
 #include <GLFW/glfw3.h>
 
 namespace Atometa {
+    // Static scroll accumulator
+    static float s_ScrollY = 0.0f;
+
+    // GLFW scroll callback
+    static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
+        s_ScrollY += (float)yoffset;
+    }
+
+    // Initialize scroll callback (call once from Window init)
+    void Input::InitializeScrollCallback(GLFWwindow* window) {
+        if (window) {
+            glfwSetScrollCallback(window, ScrollCallback);
+        }
+    }
+
     bool Input::IsKeyPressed(int keycode) {
         auto window = Application::Get().GetWindow().GetNativeWindow();
         return glfwGetKey(window, keycode) == GLFW_PRESS;
@@ -22,4 +37,10 @@ namespace Atometa {
 
     float Input::GetMouseX() { return GetMousePosition().x; }
     float Input::GetMouseY() { return GetMousePosition().y; }
+    
+    float Input::GetMouseScroll() {
+        float scroll = s_ScrollY;
+        s_ScrollY = 0.0f;  // Reset after reading
+        return scroll;
+    }
 }
