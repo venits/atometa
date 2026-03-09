@@ -11,12 +11,16 @@
     "glm",
     {
       "name": "imgui",
-      "features": [ "glfw-binding", "opengl3-binding" ]
+      "features": [
+        "glfw-binding",
+        "opengl3-binding"
+      ]
     },
     "stb",
     "boost-beast",
     "boost-asio",
     "nlohmann-json",
     "assimp"
-  ]
+  ],
+  "builtin-baseline": "af752f21c9d79ba3df9cb0250ce2233933f58486"
 }
