@@ -6,33 +6,32 @@
 #include "Atometa/Renderer/Camera.h"
 #include "Atometa/Scene/Scene.h"
 #include "Atometa/UI/ImGuiLayer.h"
-#include "Atometa/Chemistry/PeriodicTable.h"
-#include "Atometa/Chemistry/MolecularFileIO.h"
+#include "Atometa/Network/NetworkLayer.h"
 
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <imgui.h>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace Atometa
 {
-    Application *Application::s_Instance = nullptr;
+    Application* Application::s_Instance = nullptr;
 
-    Application::Application(const std::string &name)
+    Application::Application(const std::string& name)
     {
         ATOMETA_CORE_ASSERT(!s_Instance, "Application already exists!");
         s_Instance = this;
 
         Logger::Init();
         ATOMETA_INFO("========================================");
-        ATOMETA_INFO("  Atometa Engine v0.1.0");
-        ATOMETA_INFO("  3D Chemistry Simulation");
+        ATOMETA_INFO("  Atometa Engine v0.2.0");
+        ATOMETA_INFO("  3D Medical Education Platform");
         ATOMETA_INFO("========================================");
 
-        PeriodicTable::Initialize();
-
         WindowProperties props;
-        props.Title = name;
+        props.Title    = name;
         props.IconPath = "assets/icons/app.ico";
+
         m_Window = CreateScope<Window>(props);
 
         Renderer::Init();
@@ -40,11 +39,27 @@ namespace Atometa
         m_ImGuiLayer = CreateScope<ImGuiLayer>();
         m_ImGuiLayer->OnAttach(m_Window->GetNativeWindow());
 
-        m_Shader = CreateScope<Shader>("assets/shaders/basic.vert", "assets/shaders/basic.frag");
+        m_Shader = CreateScope<Shader>(
+            "assets/shaders/basic.vert",
+            "assets/shaders/basic.frag"
+        );
         m_Camera = CreateScope<Camera>(45.0f, m_Window->GetAspectRatio());
 
-        m_Scene = CreateScope<Scene>();
-        m_Scene->ResetScene();
+        m_Scene   = CreateScope<Scene>();
+        m_Network = CreateScope<NetworkLayer>();
+
+        if (m_Scene->LoadModel("assets/models/heart.glb", "Heart") < 0)
+            ATOMETA_WARN("Heart model not found — showing placeholder sphere");
+
+        // Camera sync from host
+        m_Network->SetOnMessage([this](const NetMessage& msg) {
+            if (msg.Type == NetMsgType::CameraSync) {
+                float yaw   = msg.Data.value("yaw",   0.f);
+                float pitch = msg.Data.value("pitch", 0.f);
+                float dist  = msg.Data.value("dist",  10.f);
+                m_Camera->SetFromNetwork(yaw, pitch, dist);
+            }
+        });
     }
 
     Application::~Application()
@@ -54,7 +69,7 @@ namespace Atometa
         Logger::Shutdown();
     }
 
-    Scene &Application::GetScene()
+    Scene& Application::GetScene()
     {
         return *m_Scene;
     }
@@ -63,388 +78,174 @@ namespace Atometa
     {
         ATOMETA_INFO("Application started");
 
-        // Camera controls
-        static bool firstLeftMouse = true;
-        static float leftLastX = 0.0f, leftLastY = 0.0f;
-        static bool firstRightMouse = true;
-        static float rightLastX = 0.0f, rightLastY = 0.0f;
-        static float panSpeedMultiplier = 1.0f;
+        bool  firstLeft  = true, firstRight = true;
+        float leftLastX  = 0.f, leftLastY  = 0.f;
+        float rightLastX = 0.f, rightLastY = 0.f;
 
-        // UI state
-        bool showDemo = false;
-        bool showViewport = true;
-        bool showProperties = true;
-        bool showHierarchy = true;
-        bool showPerformance = true;
-        bool showMolecules = true;
-        bool showSimulation = true;
-        bool showEnergyPlot = false;
-
-        // Energy history for plotting
-        std::vector<float> kineticHistory;
-        std::vector<float> potentialHistory;
-        std::vector<float> totalHistory;
+        static float cameraSensitivity = 0.2f;
 
         while (m_Running && !m_Window->ShouldClose())
         {
-            // ImGui wants to capture mouse input (e.g. hovering over UI elements)
-            bool isMouseOverImGui = ImGui::GetIO().WantCaptureMouse;
-
-            float time = (float)glfwGetTime();
+            float time      = static_cast<float>(glfwGetTime());
             float deltaTime = time - m_LastFrameTime;
             m_LastFrameTime = time;
 
-            // ========== INPUT HANDLING ==========
+            bool overUI = ImGui::GetIO().WantCaptureMouse;
 
-            // Keyboard shortcuts
-            if (Input::IsKeyPressed(GLFW_KEY_SPACE))
-            {
-                auto &sim = m_Scene->GetSimulation();
-                if (sim.IsRunning())
-                    sim.Pause();
-                else
-                    sim.Play();
-            }
-            if (Input::IsKeyPressed(GLFW_KEY_R))
-            {
-                m_Scene->GetSimulation().Reset();
-            }
-
-            static float cameraSensitivity = 0.2f;
-
-            // Mouse controls
+            // ── Input ─────────────────────────────────────────────────────
             float scroll = Input::GetMouseScroll();
-            if (scroll != 0.0f && Input::IsKeyPressed(GLFW_KEY_LEFT_CONTROL) && !isMouseOverImGui)
-            {
-                panSpeedMultiplier += scroll * 0.1f;
-                panSpeedMultiplier = glm::clamp(panSpeedMultiplier, 0.1f, 10.0f);
-            }
-            else if (scroll != 0.0f && !isMouseOverImGui)
-            {
+            if (scroll != 0.f && !overUI)
                 m_Camera->Zoom(scroll);
-            }
 
-            // Left-click: Pan
-            if (Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT) && !isMouseOverImGui)
+            if (Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT) && !overUI)
             {
-                glm::vec2 mousePos = Input::GetMousePosition();
-                if (firstRightMouse)
-                {
-                    rightLastX = mousePos.x;
-                    rightLastY = mousePos.y;
-                    firstRightMouse = false;
-                }
-                float deltaX = mousePos.x - rightLastX;
-                float deltaY = mousePos.y - rightLastY;
-                rightLastX = mousePos.x;
-                rightLastY = mousePos.y;
-                m_Camera->Pan(deltaX * cameraSensitivity, deltaY * cameraSensitivity);
+                glm::vec2 mp = Input::GetMousePosition();
+                if (firstLeft) { leftLastX = mp.x; leftLastY = mp.y; firstLeft = false; }
+                m_Camera->Rotate(
+                    (mp.x - leftLastX) * cameraSensitivity,
+                    (leftLastY - mp.y) * cameraSensitivity
+                );
+                leftLastX = mp.x; leftLastY = mp.y;
             }
-            else
-            {
-                firstRightMouse = true;
-            }
+            else { firstLeft = true; }
 
-            // Right-click: Rotate
-            if (Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT) && !isMouseOverImGui)
+            if (Input::IsMouseButtonPressed(GLFW_MOUSE_BUTTON_RIGHT) && !overUI)
             {
-                glm::vec2 mousePos = Input::GetMousePosition();
-                if (firstLeftMouse)
-                {
-                    leftLastX = mousePos.x;
-                    leftLastY = mousePos.y;
-                    firstLeftMouse = false;
-                }
-                float deltaX = mousePos.x - leftLastX;
-                float deltaY = leftLastY - mousePos.y;
-                leftLastX = mousePos.x;
-                leftLastY = mousePos.y;
-                m_Camera->Rotate(deltaX, deltaY);
+                glm::vec2 mp = Input::GetMousePosition();
+                if (firstRight) { rightLastX = mp.x; rightLastY = mp.y; firstRight = false; }
+                m_Camera->Pan(
+                    (mp.x - rightLastX) * cameraSensitivity,
+                    (mp.y - rightLastY) * cameraSensitivity
+                );
+                rightLastX = mp.x; rightLastY = mp.y;
             }
-            else
-            {
-                firstLeftMouse = true;
-            }
+            else { firstRight = true; }
 
-            // ========== UPDATE & RENDER ==========
-
+            // ── Update & render ───────────────────────────────────────────
             m_Scene->Update(deltaTime);
-            Renderer::Clear(glm::vec4(0.1f, 0.1f, 0.1f, 1.0f));
+            BroadcastCamera();
+
+            Renderer::Clear(glm::vec4(0.08f, 0.08f, 0.10f, 1.0f));
             m_Scene->Render(*m_Shader, *m_Camera);
 
-            // ========== UI ==========
-
+            // ── UI ────────────────────────────────────────────────────────
             m_ImGuiLayer->Begin();
-
-            // Main menu bar
-            if (ImGui::BeginMainMenuBar())
-            {
-                if (ImGui::BeginMenu("File"))
-                {
-                    if (ImGui::MenuItem("New", "Ctrl+N"))
-                        m_Scene->ClearMolecules();
-                    if (ImGui::MenuItem("Open XYZ...", "Ctrl+O"))
-                    {
-                        Molecule mol;
-                        if (MolecularFileIO::LoadXYZ("assets/molecules/water.xyz", mol))
-                            m_Scene->AddMolecule(mol);
-                    }
-                    if (ImGui::MenuItem("Save XYZ...", "Ctrl+S"))
-                    {
-                        if (m_Scene->GetMoleculeCount() > 0)
-                            MolecularFileIO::SaveXYZ("output.xyz", m_Scene->GetMolecule(0));
-                    }
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Exit", "Alt+F4"))
-                        Close();
-                    ImGui::EndMenu();
-                }
-
-                if (ImGui::BeginMenu("View"))
-                {
-                    ImGui::MenuItem("Molecules", nullptr, &showMolecules);
-                    ImGui::MenuItem("Simulation", nullptr, &showSimulation);
-                    ImGui::MenuItem("Energy Plot", nullptr, &showEnergyPlot);
-                    ImGui::MenuItem("Properties", nullptr, &showProperties);
-                    ImGui::MenuItem("Performance", nullptr, &showPerformance);
-                    ImGui::EndMenu();
-                }
-
-                ImGui::SliderFloat("Camera Sensitivity", &cameraSensitivity, 0.2f, 5.0f);
-
-                if (ImGui::BeginMenu("Molecules"))
-                {
-                    if (ImGui::MenuItem("Water"))
-                        m_Scene->AddMolecule(Molecule::CreateWater());
-                    if (ImGui::MenuItem("Methane"))
-                        m_Scene->AddMolecule(Molecule::CreateMethane());
-                    if (ImGui::MenuItem("Ethanol"))
-                        m_Scene->AddMolecule(Molecule::CreateEthanol());
-                    if (ImGui::MenuItem("Benzene"))
-                        m_Scene->AddMolecule(Molecule::CreateBenzene());
-                    if (ImGui::MenuItem("CO2"))
-                        m_Scene->AddMolecule(Molecule::CreateCO2());
-                    if (ImGui::MenuItem("Ammonia"))
-                        m_Scene->AddMolecule(Molecule::CreateAmmonia());
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Clear All"))
-                        m_Scene->ClearMolecules();
-                    ImGui::EndMenu();
-                }
-
-                if (ImGui::BeginMenu("Simulation"))
-                {
-                    auto &sim = m_Scene->GetSimulation();
-                    if (ImGui::MenuItem("Play", "Space", nullptr, !sim.IsRunning()))
-                        sim.Play();
-                    if (ImGui::MenuItem("Pause", nullptr, nullptr, sim.IsRunning()))
-                        sim.Pause();
-                    if (ImGui::MenuItem("Reset", "R"))
-                        sim.Reset();
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Minimize Energy"))
-                    {
-                        sim.Pause();
-                        sim.MinimizeEnergy(m_Scene->GetMolecules());
-                    }
-                    if (ImGui::MenuItem("Run 1000 steps"))
-                        sim.RunMD(m_Scene->GetMolecules(), 1000);
-                    ImGui::EndMenu();
-                }
-
-                ImGui::EndMainMenuBar();
-            }
-
-            // ========== SIMULATION WINDOW ==========
-
-            if (showSimulation)
-            {
-                ImGui::Begin("Simulation", &showSimulation);
-
-                auto &sim = m_Scene->GetSimulation();
-                auto &stats = sim.GetStatistics();
-
-                // Status
-                ImGui::SeparatorText("Status");
-                const char *modeText = sim.IsRunning() ? "Running (MD)" : "Paused";
-                ImGui::Text("Mode: %s", modeText);
-                ImGui::Text("Steps: %u", stats.StepCount);
-                ImGui::Text("Time: %.3f ps", stats.SimulationTime);
-
-                // Energetics
-                ImGui::SeparatorText("Energetics");
-                ImGui::Text("Kinetic:    %8.2f kJ/mol", stats.KineticEnergy);
-                ImGui::Text("Potential:  %8.2f kJ/mol", stats.PotentialEnergy);
-                ImGui::Text("Total:      %8.2f kJ/mol", stats.TotalEnergy);
-                ImGui::Text("Temperature: %6.1f K", stats.Temperature);
-                ImGui::Text("Collisions: %u", stats.CollisionCount);
-
-                // Controls
-                ImGui::SeparatorText("Controls");
-                if (sim.IsRunning())
-                {
-                    if (ImGui::Button("Pause", ImVec2(-1, 0)))
-                        sim.Pause();
-                }
-                else
-                {
-                    if (ImGui::Button("Play (MD)", ImVec2(-1, 0)))
-                        sim.Play();
-                }
-                if (ImGui::Button("Reset", ImVec2(-1, 0)))
-                    sim.Reset();
-                if (ImGui::Button("Minimize Energy", ImVec2(-1, 0)))
-                {
-                    sim.Pause();
-                    sim.MinimizeEnergy(m_Scene->GetMolecules());
-                }
-
-                // MD Parameters
-                ImGui::SeparatorText("MD Parameters");
-
-                static float timeStep = 0.001f;
-                static float temperature = 300.0f;
-                static float damping = 0.1f;
-                static bool useThermostat = true;
-                static int integrator = 0;
-
-                if (ImGui::SliderFloat("Time Step (ps)", &timeStep, 0.0001f, 0.01f, "%.4f"))
-                {
-                    auto params = sim.GetMDParameters();
-                    params.TimeStep = timeStep;
-                    sim.SetMDParameters(params);
-                }
-                if (ImGui::SliderFloat("Temperature (K)", &temperature, 0.0f, 1000.0f))
-                {
-                    auto params = sim.GetMDParameters();
-                    params.Temperature = temperature;
-                    sim.SetMDParameters(params);
-                }
-                if (ImGui::SliderFloat("Damping", &damping, 0.0f, 1.0f))
-                {
-                    auto params = sim.GetMDParameters();
-                    params.Damping = damping;
-                    sim.SetMDParameters(params);
-                }
-                if (ImGui::Checkbox("Thermostat", &useThermostat))
-                {
-                    auto params = sim.GetMDParameters();
-                    params.UseThermostat = useThermostat;
-                    sim.SetMDParameters(params);
-                }
-
-                const char *integrators[] = {"Verlet", "Leap-Frog", "RK4"};
-                if (ImGui::Combo("Integrator", &integrator, integrators, 3))
-                {
-                    auto params = sim.GetMDParameters();
-                    params.Integrator = static_cast<IntegratorType>(integrator);
-                    sim.SetMDParameters(params);
-                }
-
-                // Collisions
-                ImGui::SeparatorText("Collisions");
-                static bool enableCollisions = true;
-                static float restitution = 0.8f;
-                static float friction = 0.3f;
-
-                if (ImGui::Checkbox("Enable", &enableCollisions))
-                {
-                    sim.SetEnableCollisions(enableCollisions);
-                }
-                if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f))
-                {
-                    auto params = sim.GetCollisionParameters();
-                    params.Restitution = restitution;
-                    sim.SetCollisionParameters(params);
-                }
-                if (ImGui::SliderFloat("Friction", &friction, 0.0f, 1.0f))
-                {
-                    auto params = sim.GetCollisionParameters();
-                    params.Friction = friction;
-                    sim.SetCollisionParameters(params);
-                }
-
-                ImGui::End();
-            }
-
-            // ========== ENERGY PLOT ==========
-
-            if (showEnergyPlot)
-            {
-                ImGui::Begin("Energy Plot", &showEnergyPlot);
-
-                auto &stats = m_Scene->GetSimulation().GetStatistics();
-
-                kineticHistory.push_back(stats.KineticEnergy);
-                potentialHistory.push_back(stats.PotentialEnergy);
-                totalHistory.push_back(stats.TotalEnergy);
-
-                if (kineticHistory.size() > 1000)
-                {
-                    kineticHistory.erase(kineticHistory.begin());
-                    potentialHistory.erase(potentialHistory.begin());
-                    totalHistory.erase(totalHistory.begin());
-                }
-
-                ImGui::PlotLines("Kinetic", kineticHistory.data(), kineticHistory.size(),
-                                 0, nullptr, FLT_MAX, FLT_MAX, ImVec2(0, 80));
-                ImGui::PlotLines("Potential", potentialHistory.data(), potentialHistory.size(),
-                                 0, nullptr, FLT_MAX, FLT_MAX, ImVec2(0, 80));
-                ImGui::PlotLines("Total", totalHistory.data(), totalHistory.size(),
-                                 0, nullptr, FLT_MAX, FLT_MAX, ImVec2(0, 80));
-
-                if (ImGui::Button("Clear"))
-                {
-                    kineticHistory.clear();
-                    potentialHistory.clear();
-                    totalHistory.clear();
-                }
-
-                ImGui::End();
-            }
-
-            // ========== MOLECULES WINDOW ==========
-
-            if (showMolecules)
-            {
-                ImGui::Begin("Molecules", &showMolecules);
-                ImGui::Text("Count: %zu", m_Scene->GetMoleculeCount());
-                ImGui::Separator();
-
-                for (size_t i = 0; i < m_Scene->GetMoleculeCount(); ++i)
-                {
-                    const auto &mol = m_Scene->GetMolecule(i);
-                    if (ImGui::TreeNode((void *)(intptr_t)i, "%s", mol.GetName().c_str()))
-                    {
-                        ImGui::Text("Formula: %s", mol.GetFormula().c_str());
-                        ImGui::Text("Weight: %.2f u", mol.GetMolecularWeight());
-                        ImGui::Text("Atoms: %u", mol.GetAtomCount());
-                        ImGui::Text("Bonds: %u", mol.GetBondCount());
-                        if (ImGui::Button("Remove"))
-                            m_Scene->RemoveMolecule(i);
-                        ImGui::TreePop();
-                    }
-                }
-                ImGui::End();
-            }
-
-            // Other windows
-            if (showDemo)
-                m_ImGuiLayer->ShowDemoWindow();
-            if (showProperties)
-                m_ImGuiLayer->ShowPropertiesWindow(&showProperties);
-            if (showPerformance)
-                m_ImGuiLayer->ShowPerformanceWindow(&showPerformance);
-
+            RenderUI(cameraSensitivity);
             m_ImGuiLayer->End();
+
             m_Window->OnUpdate();
         }
 
         ATOMETA_INFO("Application shutdown");
     }
 
+    void Application::BroadcastCamera()
+    {
+        if (m_Network->GetRole() != NetworkRole::Host) return;
+        if (!m_Network->IsConnected())                 return;
+
+        NetMessage msg;
+        msg.Type          = NetMsgType::CameraSync;
+        msg.Data["yaw"]   = m_Camera->GetYaw();
+        msg.Data["pitch"] = m_Camera->GetPitch();
+        msg.Data["dist"]  = m_Camera->GetDistance();
+        m_Network->Send(msg);
+    }
+
+    void Application::RenderUI(float& cameraSensitivity)
+    {
+        // ── Menu bar ──────────────────────────────────────────────────────
+        if (ImGui::BeginMainMenuBar())
+        {
+            if (ImGui::BeginMenu("File"))
+            {
+                if (ImGui::MenuItem("Exit", "Alt+F4")) Close();
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("View"))
+            {
+                ImGui::MenuItem("Scene",       nullptr, &m_ShowScene);
+                ImGui::MenuItem("Properties",  nullptr, &m_ShowProperties);
+                ImGui::MenuItem("Session",     nullptr, &m_ShowSession);
+                ImGui::MenuItem("Performance", nullptr, &m_ShowPerformance);
+                ImGui::EndMenu();
+            }
+            ImGui::SetNextItemWidth(160.f);
+            ImGui::SliderFloat("Sensitivity", &cameraSensitivity, 0.05f, 5.0f);
+            ImGui::EndMainMenuBar();
+        }
+
+        if (m_ShowScene)
+            m_ImGuiLayer->ShowSceneHierarchyWindow(*m_Scene, m_SelectedModel,
+                                                   &m_ShowScene);
+        if (m_ShowProperties)
+            m_ImGuiLayer->ShowPropertiesWindow(*m_Scene, m_SelectedModel,
+                                               &m_ShowProperties);
+        if (m_ShowSession)
+            RenderSessionWindow();
+        if (m_ShowPerformance)
+            m_ImGuiLayer->ShowPerformanceWindow(&m_ShowPerformance);
+    }
+
+    void Application::RenderSessionWindow()
+    {
+        ImGui::Begin("Session", &m_ShowSession, ImGuiWindowFlags_AlwaysAutoResize);
+
+        auto role = m_Network->GetRole();
+
+        if (role == NetworkRole::None)
+        {
+            ImGui::SeparatorText("Start a session");
+
+            static uint16_t hostPort = 8080;
+            ImGui::SetNextItemWidth(80.f);
+            ImGui::InputScalar("Port##host", ImGuiDataType_U16, &hostPort);
+            ImGui::SameLine();
+            if (ImGui::Button("Host Session")) {
+                if (m_Network->StartHost(hostPort))
+                    ATOMETA_INFO("Hosting on port ", hostPort);
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            static char joinIp[64]   = "127.0.0.1";
+            static uint16_t joinPort = 8080;
+            ImGui::SetNextItemWidth(140.f);
+            ImGui::InputText("IP##join", joinIp, sizeof(joinIp));
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(80.f);
+            ImGui::InputScalar("Port##join", ImGuiDataType_U16, &joinPort);
+            ImGui::SameLine();
+            if (ImGui::Button("Join Session")) {
+                if (m_Network->Connect(joinIp, joinPort))
+                    ATOMETA_INFO("Connecting to ", joinIp, ":", joinPort);
+            }
+        }
+        else if (role == NetworkRole::Host)
+        {
+            ImGui::TextColored({0.2f,1.f,0.4f,1.f}, "● Hosting");
+            ImGui::Text("Students connected: %u", m_Network->GetClientCount());
+            if (ImGui::Button("Stop Session"))
+                m_Network->StopHost();
+        }
+        else if (role == NetworkRole::Client)
+        {
+            if (m_Network->IsConnected())
+                ImGui::TextColored({0.2f,1.f,0.4f,1.f}, "● Connected to session");
+            else
+                ImGui::TextColored({1.f,0.4f,0.2f,1.f}, "● Connecting...");
+            if (ImGui::Button("Leave Session"))
+                m_Network->Disconnect();
+        }
+
+        ImGui::End();
+    }
+
     void Application::Close()
     {
         m_Running = false;
     }
-}
+
+} // namespace Atometa
