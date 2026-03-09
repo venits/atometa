@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atometa"
+version = "0.1.0"
+description = "Molecular dynamics simulation Python bindings"
+readme = "README.md"
+authors = [
+    {name = "Venits Khadr", email = "venits@proton.me"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.20.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/venits/atometa"
+Documentation = "https://atometa.readthedocs.io"
+Repository = "https://github.com/venits/atometa.git"
+Issues = "https://github.com/venits/atometa/issues"
+
+[tool.setuptools]
+packages = []  # No Python packages, just C extension
+
+[tool.setuptools.package-data]
+atometa = ["*.pyd", "*.so"]

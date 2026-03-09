@@ -1,12 +1,11 @@
 {
   "name": "atometa",
-  "version": "0.1.0",
-  "description": "3D Chemistry Engine",
+  "version": "0.2.0",
+  "description": "3D Medical Education Platform",
   "dependencies": [
     {
       "name": "glfw3",
-      "default-features": false,
-      "features": []
+      "default-features": false
     },
     "glad",
     "glm",
@@ -14,8 +13,10 @@
       "name": "imgui",
       "features": [ "glfw-binding", "opengl3-binding" ]
     },
-    "eigen3",
     "stb",
-    "gtest"
+    "boost-beast",
+    "boost-asio",
+    "nlohmann-json",
+    "assimp"
   ]
 }

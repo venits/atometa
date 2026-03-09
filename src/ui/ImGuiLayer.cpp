@@ -1,4 +1,5 @@
 #include "Atometa/UI/ImGuiLayer.h"
+#include "Atometa/Scene/Scene.h"
 #include "Atometa/Core/Logger.h"
 
 #include <imgui.h>
@@ -8,275 +9,287 @@
 
 namespace Atometa {
 
-    ImGuiLayer::ImGuiLayer() {
-    }
+    ImGuiLayer::ImGuiLayer() {}
+    ImGuiLayer::~ImGuiLayer() {}
 
-    ImGuiLayer::~ImGuiLayer() {
-    }
-
-    void ImGuiLayer::OnAttach(GLFWwindow* window) {
+    void ImGuiLayer::OnAttach(GLFWwindow* window)
+    {
         ATOMETA_INFO("Initializing ImGui...");
 
-        // Setup Dear ImGui context
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO();
-        
-        // Enable docking and viewports
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-        // io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-        // io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 
-        // Setup style
         SetupStyle();
 
-        // When viewports are enabled, tweak WindowRounding
-        // ImGuiStyle& style = ImGui::GetStyle();
-        // if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-        //     style.WindowRounding = 0.0f;
-        //     style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-        // }
-
-        // Setup Platform/Renderer backends
         ImGui_ImplGlfw_InitForOpenGL(window, true);
         ImGui_ImplOpenGL3_Init("#version 330");
 
         ATOMETA_INFO("ImGui initialized successfully");
     }
 
-    void ImGuiLayer::OnDetach() {
+    void ImGuiLayer::OnDetach()
+    {
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
     }
 
-    void ImGuiLayer::Begin() {
+    void ImGuiLayer::Begin()
+    {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
     }
 
-    void ImGuiLayer::End() {
-        ImGuiIO& io = ImGui::GetIO();
-        
-        // Rendering
+    void ImGuiLayer::End()
+    {
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        // Update and render additional platform windows
-        // if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-        //     GLFWwindow* backup_current_context = glfwGetCurrentContext();
-        //     ImGui::UpdatePlatformWindows();
-        //     ImGui::RenderPlatformWindowsDefault();
-        //     glfwMakeContextCurrent(backup_current_context);
-        // }
     }
 
-    void ImGuiLayer::ShowDemoWindow() {
+    void ImGuiLayer::ShowDemoWindow()
+    {
         ImGui::ShowDemoWindow();
     }
 
-    void ImGuiLayer::ShowViewportWindow(bool* pOpen) {
+    void ImGuiLayer::ShowViewportWindow(bool* pOpen)
+    {
         ImGui::Begin("3D Viewport", pOpen, ImGuiWindowFlags_NoScrollbar);
-        
         ImVec2 viewportSize = ImGui::GetContentRegionAvail();
-        
         ImGui::Text("Viewport Size: %.0fx%.0f", viewportSize.x, viewportSize.y);
-        
-        // Here we'll render the 3D scene to a framebuffer
-        // For now, just show a placeholder
         ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1.0f), "3D Scene Renders Here");
-        
         ImGui::End();
     }
 
-    void ImGuiLayer::ShowPropertiesWindow(bool* pOpen) {
+    // ── Scene Hierarchy ───────────────────────────────────────────────────
+
+    void ImGuiLayer::ShowSceneHierarchyWindow(Scene& scene, int& selectedIndex,
+                                               bool* pOpen)
+    {
+        ImGui::Begin("Scene", pOpen);
+
+        // ── Header ────────────────────────────────────────────────────────
+        ImGui::TextColored({0.4f, 0.8f, 1.0f, 1.f},
+                           "Models (%zu)", scene.GetModelCount());
+        ImGui::Separator();
+
+        // ── Model list ────────────────────────────────────────────────────
+        for (int i = 0; i < static_cast<int>(scene.GetModelCount()); ++i)
+        {
+            const auto& model = scene.GetModel(i);
+
+            // Visibility toggle (eye icon via text)
+            bool visible = model.IsVisible();
+            ImGui::PushID(i);
+
+            if (ImGui::Checkbox("##vis", &visible))
+                scene.GetModel(i).SetVisible(visible);
+
+            ImGui::SameLine();
+
+            // Selectable row
+            bool selected = (selectedIndex == i);
+            char label[128];
+            snprintf(label, sizeof(label), "%s  (%zu mesh%s)##model%d",
+                     model.GetName().c_str(),
+                     model.GetMeshCount(),
+                     model.GetMeshCount() == 1 ? "" : "es",
+                     i);
+
+            if (ImGui::Selectable(label, selected,
+                                  ImGuiSelectableFlags_SpanAllColumns))
+                selectedIndex = selected ? -1 : i; // toggle
+
+            // Right-click context menu
+            if (ImGui::BeginPopupContextItem("model_ctx"))
+            {
+                if (ImGui::MenuItem("Remove"))
+                {
+                    scene.RemoveModel(i);
+                    if (selectedIndex == i)  selectedIndex = -1;
+                    else if (selectedIndex > i) selectedIndex--;
+                    ImGui::EndPopup();
+                    ImGui::PopID();
+                    break; // list changed — restart next frame
+                }
+                ImGui::EndPopup();
+            }
+
+            ImGui::PopID();
+        }
+
+        // ── Empty scene hint ──────────────────────────────────────────────
+        if (scene.GetModelCount() == 0)
+        {
+            ImGui::Spacing();
+            ImGui::TextDisabled("No models loaded.");
+            ImGui::TextDisabled("Use Load Model below.");
+        }
+
+        // ── Load model ────────────────────────────────────────────────────
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        static char pathBuf[256] = "assets/models/";
+        static char nameBuf[64]  = "";
+        ImGui::SetNextItemWidth(-1.f);
+        ImGui::InputText("##path", pathBuf, sizeof(pathBuf));
+        ImGui::SetNextItemWidth(-1.f);
+        ImGui::InputText("Display name##name", nameBuf, sizeof(nameBuf));
+
+        if (ImGui::Button("Load Model", ImVec2(-1.f, 0.f)))
+        {
+            std::string path(pathBuf);
+            std::string name(nameBuf);
+            if (!path.empty())
+            {
+                int idx = scene.LoadModel(path, name.empty() ? path : name);
+                if (idx >= 0)
+                {
+                    selectedIndex = idx;
+                    nameBuf[0] = '\0';
+                    ATOMETA_INFO("Loaded model: ", path);
+                }
+            }
+        }
+
+        // ── Clear all ─────────────────────────────────────────────────────
+        if (scene.GetModelCount() > 0)
+        {
+            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f,0.1f,0.1f,1.f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f,0.2f,0.2f,1.f));
+            if (ImGui::Button("Clear Scene", ImVec2(-1.f, 0.f)))
+            {
+                scene.Clear();
+                selectedIndex = -1;
+            }
+            ImGui::PopStyleColor(2);
+        }
+
+        ImGui::End();
+    }
+
+    // ── Properties ────────────────────────────────────────────────────────
+
+    void ImGuiLayer::ShowPropertiesWindow(Scene& scene, int selectedIndex,
+                                           bool* pOpen)
+    {
         ImGui::Begin("Properties", pOpen);
-        
-        ImGui::SeparatorText("Selected Object");
-        
-        static char name[128] = "Carbon Atom";
-        ImGui::InputText("Name", name, IM_ARRAYSIZE(name));
-        
+
+        if (selectedIndex < 0 ||
+            selectedIndex >= static_cast<int>(scene.GetModelCount()))
+        {
+            ImGui::TextDisabled("No model selected.");
+            ImGui::End();
+            return;
+        }
+
+        auto& model = scene.GetModel(selectedIndex);
+
+        // ── Info ──────────────────────────────────────────────────────────
+        ImGui::SeparatorText("Model Info");
+        ImGui::Text("Name   : %s", model.GetName().c_str());
+        ImGui::Text("Source : %s", model.GetSourcePath().c_str());
+        ImGui::Text("Meshes : %zu", model.GetMeshCount());
+
+        // ── Transform ─────────────────────────────────────────────────────
         ImGui::SeparatorText("Transform");
-        
-        static float position[3] = { 0.0f, 0.0f, 0.0f };
-        ImGui::DragFloat3("Position", position, 0.1f);
-        
-        static float rotation[3] = { 0.0f, 0.0f, 0.0f };
-        ImGui::DragFloat3("Rotation", rotation, 1.0f);
-        
-        static float scale[3] = { 1.0f, 1.0f, 1.0f };
-        ImGui::DragFloat3("Scale", scale, 0.1f);
-        
-        ImGui::SeparatorText("Atom Properties");
-        
-        static const char* atomTypes[] = { "Hydrogen", "Carbon", "Nitrogen", "Oxygen" };
-        static int currentAtom = 1;  // Carbon
-        ImGui::Combo("Atom Type", &currentAtom, atomTypes, IM_ARRAYSIZE(atomTypes));
-        
-        static float mass = 12.011f;
-        ImGui::InputFloat("Mass (u)", &mass, 0.001f, 1.0f, "%.3f");
-        
-        static float radius = 0.70f;
-        ImGui::SliderFloat("Radius (Å)", &radius, 0.1f, 2.0f);
-        
-        static float color[3] = { 0.5f, 0.5f, 0.5f };
-        ImGui::ColorEdit3("Color", color);
-        
+
+        glm::vec3 pos = model.GetPosition();
+        if (ImGui::DragFloat3("Position", &pos.x, 0.01f))
+            model.SetPosition(pos);
+
+        glm::vec3 rot = model.GetRotation();
+        if (ImGui::DragFloat3("Rotation", &rot.x, 0.5f, -360.f, 360.f))
+            model.SetRotation(rot);
+
+        float scale = model.GetScale();
+        if (ImGui::DragFloat("Scale", &scale, 0.01f, 0.001f, 100.f))
+            model.SetScale(scale);
+
+        // ── Reset button ──────────────────────────────────────────────────
+        ImGui::Spacing();
+        if (ImGui::Button("Reset Transform", ImVec2(-1.f, 0.f)))
+        {
+            model.SetPosition({0.f, 0.f, 0.f});
+            model.SetRotation({0.f, 0.f, 0.f});
+            model.SetScale(1.f);
+        }
+
+        // ── Visibility ────────────────────────────────────────────────────
+        ImGui::Spacing();
+        ImGui::SeparatorText("Visibility");
+        bool visible = model.IsVisible();
+        if (ImGui::Checkbox("Visible", &visible))
+            model.SetVisible(visible);
+
         ImGui::End();
     }
 
-    void ImGuiLayer::ShowSceneHierarchyWindow(bool* pOpen) {
-        ImGui::Begin("Scene Hierarchy", pOpen);
-        
-        ImGui::SeparatorText("Objects");
-        
-        if (ImGui::TreeNode("Water Molecule (H2O)")) {
-            if (ImGui::Selectable("Oxygen", false))
-                ATOMETA_INFO("Selected: Oxygen");
-            if (ImGui::Selectable("Hydrogen 1", false))
-                ATOMETA_INFO("Selected: Hydrogen 1");
-            if (ImGui::Selectable("Hydrogen 2", false))
-                ATOMETA_INFO("Selected: Hydrogen 2");
-            ImGui::TreePop();
-        }
-        
-        if (ImGui::TreeNode("Methane (CH4)")) {
-            if (ImGui::Selectable("Carbon", false))
-                ATOMETA_INFO("Selected: Carbon");
-            if (ImGui::Selectable("Hydrogen 1", false))
-                ATOMETA_INFO("Selected: H1");
-            if (ImGui::Selectable("Hydrogen 2", false))
-                ATOMETA_INFO("Selected: H2");
-            if (ImGui::Selectable("Hydrogen 3", false))
-                ATOMETA_INFO("Selected: H3");
-            if (ImGui::Selectable("Hydrogen 4", false))
-                ATOMETA_INFO("Selected: H4");
-            ImGui::TreePop();
-        }
-        
-        ImGui::Separator();
-        
-        if (ImGui::Button("Add Atom", ImVec2(-1, 0))) {
-            ATOMETA_INFO("Add Atom clicked");
-        }
-        
-        if (ImGui::Button("Add Molecule", ImVec2(-1, 0))) {
-            ATOMETA_INFO("Add Molecule clicked");
-        }
-        
-        ImGui::End();
-    }
+    // ── Performance ───────────────────────────────────────────────────────
 
-    void ImGuiLayer::ShowPerformanceWindow(bool* pOpen) {
+    void ImGuiLayer::ShowPerformanceWindow(bool* pOpen)
+    {
         ImGui::Begin("Performance", pOpen);
-        
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 
-                    1000.0f / ImGui::GetIO().Framerate, 
+
+        ImGui::Text("%.3f ms/frame  (%.1f FPS)",
+                    1000.0f / ImGui::GetIO().Framerate,
                     ImGui::GetIO().Framerate);
-        
+
         ImGui::Separator();
-        
-        ImGui::Text("Rendering Statistics:");
-        ImGui::BulletText("Atoms: 0");
-        ImGui::BulletText("Bonds: 0");
-        ImGui::BulletText("Triangles: 0");
-        ImGui::BulletText("Draw Calls: 0");
-        
-        ImGui::Separator();
-        
-        ImGui::Text("Memory Usage:");
-        ImGui::BulletText("GPU Memory: N/A");
-        ImGui::BulletText("CPU Memory: N/A");
-        
+        ImGui::Text("Memory:");
+        ImGui::BulletText("GPU: N/A");
+        ImGui::BulletText("CPU: N/A");
+
         ImGui::End();
     }
 
-    void ImGuiLayer::SetupStyle() {
-        // Modern dark style
+    // ── Style ─────────────────────────────────────────────────────────────
+
+    void ImGuiLayer::SetupStyle()
+    {
         ImGui::StyleColorsDark();
-        
         ImGuiStyle& style = ImGui::GetStyle();
-        
-        // Rounding
-        style.WindowRounding = 5.0f;
-        style.FrameRounding = 4.0f;
-        style.GrabRounding = 3.0f;
+
+        style.WindowRounding   = 5.0f;
+        style.FrameRounding    = 4.0f;
+        style.GrabRounding     = 3.0f;
         style.ScrollbarRounding = 3.0f;
-        
-        // Spacing
-        style.WindowPadding = ImVec2(10, 10);
-        style.FramePadding = ImVec2(8, 4);
-        style.ItemSpacing = ImVec2(8, 6);
+        style.WindowPadding    = ImVec2(10, 10);
+        style.FramePadding     = ImVec2(8, 4);
+        style.ItemSpacing      = ImVec2(8, 6);
         style.ItemInnerSpacing = ImVec2(6, 4);
-        
-        // Colors - Professional dark theme
-        ImVec4* colors = style.Colors;
-        colors[ImGuiCol_WindowBg] = ImVec4(0.13f, 0.14f, 0.15f, 1.00f);
-        colors[ImGuiCol_ChildBg] = ImVec4(0.13f, 0.14f, 0.15f, 1.00f);
-        colors[ImGuiCol_PopupBg] = ImVec4(0.13f, 0.14f, 0.15f, 1.00f);
-        
-        colors[ImGuiCol_Border] = ImVec4(0.43f, 0.43f, 0.50f, 0.50f);
-        colors[ImGuiCol_FrameBg] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-        colors[ImGuiCol_FrameBgHovered] = ImVec4(0.38f, 0.38f, 0.38f, 1.00f);
-        colors[ImGuiCol_FrameBgActive] = ImVec4(0.67f, 0.67f, 0.67f, 0.39f);
-        
-        colors[ImGuiCol_TitleBg] = ImVec4(0.08f, 0.08f, 0.09f, 1.00f);
-        colors[ImGuiCol_TitleBgActive] = ImVec4(0.08f, 0.08f, 0.09f, 1.00f);
-        colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.00f, 0.00f, 0.00f, 0.51f);
-        
-        colors[ImGuiCol_MenuBarBg] = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
-        
-        colors[ImGuiCol_ScrollbarBg] = ImVec4(0.02f, 0.02f, 0.02f, 0.53f);
-        colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.31f, 0.31f, 0.31f, 1.00f);
-        colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.41f, 0.41f, 0.41f, 1.00f);
-        colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.51f, 0.51f, 0.51f, 1.00f);
-        
-        colors[ImGuiCol_CheckMark] = ImVec4(0.11f, 0.64f, 0.92f, 1.00f);
-        
-        colors[ImGuiCol_SliderGrab] = ImVec4(0.11f, 0.64f, 0.92f, 1.00f);
-        colors[ImGuiCol_SliderGrabActive] = ImVec4(0.08f, 0.50f, 0.72f, 1.00f);
-        
-        colors[ImGuiCol_Button] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-        colors[ImGuiCol_ButtonHovered] = ImVec4(0.38f, 0.38f, 0.38f, 1.00f);
-        colors[ImGuiCol_ButtonActive] = ImVec4(0.67f, 0.67f, 0.67f, 0.39f);
-        
-        colors[ImGuiCol_Header] = ImVec4(0.22f, 0.22f, 0.22f, 1.00f);
-        colors[ImGuiCol_HeaderHovered] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-        colors[ImGuiCol_HeaderActive] = ImVec4(0.67f, 0.67f, 0.67f, 0.39f);
-        
-        colors[ImGuiCol_Separator] = colors[ImGuiCol_Border];
-        colors[ImGuiCol_SeparatorHovered] = ImVec4(0.41f, 0.42f, 0.44f, 1.00f);
-        colors[ImGuiCol_SeparatorActive] = ImVec4(0.26f, 0.59f, 0.98f, 0.95f);
-        
-        colors[ImGuiCol_ResizeGrip] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-        colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.29f, 0.30f, 0.31f, 0.67f);
-        colors[ImGuiCol_ResizeGripActive] = ImVec4(0.26f, 0.59f, 0.98f, 0.95f);
-        
-        colors[ImGuiCol_Tab] = ImVec4(0.08f, 0.08f, 0.09f, 0.83f);
-        colors[ImGuiCol_TabHovered] = ImVec4(0.33f, 0.34f, 0.36f, 0.83f);
-        colors[ImGuiCol_TabActive] = ImVec4(0.23f, 0.23f, 0.24f, 1.00f);
-        colors[ImGuiCol_TabUnfocused] = ImVec4(0.08f, 0.08f, 0.09f, 1.00f);
-        colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.13f, 0.14f, 0.15f, 1.00f);
-        
-        // colors[ImGuiCol_DockingPreview] = ImVec4(0.26f, 0.59f, 0.98f, 0.70f);
-        // colors[ImGuiCol_DockingEmptyBg] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-        
-        colors[ImGuiCol_PlotLines] = ImVec4(0.61f, 0.61f, 0.61f, 1.00f);
-        colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
-        colors[ImGuiCol_PlotHistogram] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-        colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
-        
-        colors[ImGuiCol_TextSelectedBg] = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
-        
-        colors[ImGuiCol_DragDropTarget] = ImVec4(0.11f, 0.64f, 0.92f, 1.00f);
-        
-        colors[ImGuiCol_NavHighlight] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-        colors[ImGuiCol_NavWindowingHighlight] = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
-        colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
-        
-        colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
+
+        ImVec4* c = style.Colors;
+        c[ImGuiCol_WindowBg]          = ImVec4(0.13f, 0.14f, 0.15f, 1.00f);
+        c[ImGuiCol_ChildBg]           = ImVec4(0.13f, 0.14f, 0.15f, 1.00f);
+        c[ImGuiCol_PopupBg]           = ImVec4(0.13f, 0.14f, 0.15f, 1.00f);
+        c[ImGuiCol_Border]            = ImVec4(0.43f, 0.43f, 0.50f, 0.50f);
+        c[ImGuiCol_FrameBg]           = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+        c[ImGuiCol_FrameBgHovered]    = ImVec4(0.38f, 0.38f, 0.38f, 1.00f);
+        c[ImGuiCol_FrameBgActive]     = ImVec4(0.67f, 0.67f, 0.67f, 0.39f);
+        c[ImGuiCol_TitleBg]           = ImVec4(0.08f, 0.08f, 0.09f, 1.00f);
+        c[ImGuiCol_TitleBgActive]     = ImVec4(0.08f, 0.08f, 0.09f, 1.00f);
+        c[ImGuiCol_MenuBarBg]         = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
+        c[ImGuiCol_CheckMark]         = ImVec4(0.11f, 0.64f, 0.92f, 1.00f);
+        c[ImGuiCol_SliderGrab]        = ImVec4(0.11f, 0.64f, 0.92f, 1.00f);
+        c[ImGuiCol_SliderGrabActive]  = ImVec4(0.08f, 0.50f, 0.72f, 1.00f);
+        c[ImGuiCol_Button]            = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+        c[ImGuiCol_ButtonHovered]     = ImVec4(0.38f, 0.38f, 0.38f, 1.00f);
+        c[ImGuiCol_ButtonActive]      = ImVec4(0.67f, 0.67f, 0.67f, 0.39f);
+        c[ImGuiCol_Header]            = ImVec4(0.22f, 0.22f, 0.22f, 1.00f);
+        c[ImGuiCol_HeaderHovered]     = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+        c[ImGuiCol_HeaderActive]      = ImVec4(0.67f, 0.67f, 0.67f, 0.39f);
+        c[ImGuiCol_Tab]               = ImVec4(0.08f, 0.08f, 0.09f, 0.83f);
+        c[ImGuiCol_TabHovered]        = ImVec4(0.33f, 0.34f, 0.36f, 0.83f);
+        c[ImGuiCol_TabActive]         = ImVec4(0.23f, 0.23f, 0.24f, 1.00f);
+        c[ImGuiCol_DragDropTarget]    = ImVec4(0.11f, 0.64f, 0.92f, 1.00f);
+        c[ImGuiCol_TextSelectedBg]    = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
+        c[ImGuiCol_NavHighlight]      = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
     }
 
-}
+} // namespace Atometa

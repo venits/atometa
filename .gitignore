@@ -1,86 +1,85 @@
-# Build directories
+# ── Build ──────────────────────────────────────────────────────────────────
 build/
 out/
-bin/
-lib/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+compile_commands.json
+*.cmake
+!CMakeLists.txt
 
-# Visual Studio
-.vs/
-*.user
-*.suo
-*.sln
-*.vcxproj
-*.vcxproj.filters
+# ── vcpkg ──────────────────────────────────────────────────────────────────
+vcpkg_installed/
 
-# Compiled files
+# ── Binaries ───────────────────────────────────────────────────────────────
 *.exe
 *.dll
-*.obj
+*.so
+*.dylib
+*.a
+*.lib
 *.pdb
 *.ilk
 *.exp
-*.lib
-*.manifest
 
-# CMake
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-vcpkg_installed/
-Makefile
+# ── Visual Studio ──────────────────────────────────────────────────────────
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.user
+*.aps
+*.ncb
+*.sdf
+*.opensdf
+*.cachefile
+*.VC.db
+*.VC.opendb
+ipch/
+x64/
+x86/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
 
-# IDE
-.vscode/
+# ── CLion ──────────────────────────────────────────────────────────────────
 .idea/
 
-# OS
+# ── VS Code ────────────────────────────────────────────────────────────────
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# ── macOS ──────────────────────────────────────────────────────────────────
 .DS_Store
+.AppleDouble
+.LSOverride
+
+# ── Windows ────────────────────────────────────────────────────────────────
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# Certificate files
-*.pfx
-*.p12
-*.pem
-*.key
-*.crt
-*.cer
-*.p7b
-*.p7c
+# ── Assets — keep structure, ignore large binary models ───────────────────
+# Commit shaders and icons, but not large GLB/OBJ/FBX files
+assets/models/*.glb
+assets/models/*.obj
+assets/models/*.fbx
+assets/models/*.dae
+assets/models/*.gltf
+# To force-add a small model: git add -f assets/models/placeholder.glb
 
-# Private keys
-*.priv
-*.private
-id_rsa
-id_dsa
+# ── Logs ───────────────────────────────────────────────────────────────────
+*.log
+logs/
 
-# Password/secret files
-secrets.txt
-passwords.txt
-credentials.*
-.env
-.env.local
-.env.*.local
-
-# Code signing certificates
-certificates/
-certs/
-ssl/
-atometa.pfx
-code-signing.pfx
-
-# Signing tools
-signtool.exe
-
-# Windows certificate stores
-*.p7s
-*.spc
-*.pvk
-
-# JWT/API tokens
-*.jwt
-*.token
-
-# Encryption keys
-*.gpg
-*.asc
-*.pgp
+# ── Precompiled headers ────────────────────────────────────────────────────
+*.gch
+*.pch

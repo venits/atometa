@@ -1,14 +1,23 @@
 #pragma once
 
 #include "Core.h"
-#include <string>
 #include <iostream>
 #include <sstream>
+#include <string>
 
-// Forward declare Windows API
-extern "C" __declspec(dllimport) void __stdcall OutputDebugStringA(const char* lpOutputString);
+// Pull in OutputDebugStringA on Windows
+#if defined(ATOMETA_PLATFORM_WINDOWS)
+    #ifndef WIN32_LEAN_AND_MEAN
+        #define WIN32_LEAN_AND_MEAN
+    #endif
+    #ifndef NOMINMAX
+        #define NOMINMAX
+    #endif
+    #include <windows.h>
+#endif
 
 namespace Atometa {
+
     enum class LogLevel { Trace, Info, Warn, Error, Fatal };
 
     class Logger {
@@ -18,36 +27,49 @@ namespace Atometa {
 
         template<typename... Args>
         static void Trace(Args&&... args) { Log(LogLevel::Trace, std::forward<Args>(args)...); }
-        
+
         template<typename... Args>
-        static void Info(Args&&... args) { Log(LogLevel::Info, std::forward<Args>(args)...); }
-        
+        static void Info(Args&&... args)  { Log(LogLevel::Info,  std::forward<Args>(args)...); }
+
         template<typename... Args>
-        static void Warn(Args&&... args) { Log(LogLevel::Warn, std::forward<Args>(args)...); }
-        
+        static void Warn(Args&&... args)  { Log(LogLevel::Warn,  std::forward<Args>(args)...); }
+
         template<typename... Args>
         static void Error(Args&&... args) { Log(LogLevel::Error, std::forward<Args>(args)...); }
 
     private:
         template<typename... Args>
-        static void Log(LogLevel level, Args&&... args) {
+        static void Log(LogLevel level, Args&&... args)
+        {
             std::ostringstream oss;
-            ((oss << std::forward<Args>(args)), ...);
-            
-            const char* levelStr = "";
+            (oss << ... << std::forward<Args>(args));
+
+            const char* prefix = "";
             switch (level) {
-                case LogLevel::Trace: levelStr = "[TRACE]"; break;
-                case LogLevel::Info:  levelStr = "[INFO] "; break;
-                case LogLevel::Warn:  levelStr = "[WARN] "; break;
-                case LogLevel::Error: levelStr = "[ERROR]"; break;
-                case LogLevel::Fatal: levelStr = "[FATAL]"; break;
+                case LogLevel::Trace: prefix = "[TRACE] "; break;
+                case LogLevel::Info:  prefix = "[INFO]  "; break;
+                case LogLevel::Warn:  prefix = "[WARN]  "; break;
+                case LogLevel::Error: prefix = "[ERROR] "; break;
+                case LogLevel::Fatal: prefix = "[FATAL] "; break;
             }
-            
-            std::string fullMsg = std::string(levelStr) + " " + oss.str() + "\n";
-            OutputDebugStringA(fullMsg.c_str());
+
+            // stderr for Warn/Error/Fatal, stdout otherwise
+            if (level >= LogLevel::Warn)
+                std::cerr << prefix << oss.str() << '\n';
+            else
+                std::cout << prefix << oss.str() << '\n';
+
+#if defined(ATOMETA_PLATFORM_WINDOWS) && defined(_MSC_VER)
+            // Also send to VS Output window on Windows
+            std::string full = std::string(prefix) + oss.str() + "\n";
+            ::OutputDebugStringA(full.c_str());
+#endif
         }
     };
-}
+
+} // namespace Atometa
+
+// ── Compile-time macros ───────────────────────────────────────────────────
 
 #ifdef ATOMETA_ENABLE_LOGGING
     #define ATOMETA_TRACE(...) ::Atometa::Logger::Trace(__VA_ARGS__)
