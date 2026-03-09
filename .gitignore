@@ -83,3 +83,15 @@ logs/
 # ── Precompiled headers ────────────────────────────────────────────────────
 *.gch
 *.pch
+
+
+certificates/
+.env*
+*.pyd
+*.tar.gz
+dist/
+test.py
+pyproject.toml
+assets/molecules/
+*.xyz
+*.jsx
