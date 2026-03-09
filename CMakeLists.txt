@@ -91,6 +91,7 @@ find_package(glm           CONFIG REQUIRED)
 find_package(imgui         CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(Boost         REQUIRED COMPONENTS system)
+find_package(assimp        CONFIG REQUIRED)
 
 # ============================================================================
 # Source Files  (Core + Renderer + UI only — no Chemistry/Physics/Python)
@@ -133,6 +134,7 @@ target_link_libraries(AtometaLib PUBLIC
     imgui::imgui
     nlohmann_json::nlohmann_json
     Boost::system
+    assimp::assimp
 )
 
 target_compile_definitions(AtometaLib PRIVATE GLFW_INCLUDE_NONE)
