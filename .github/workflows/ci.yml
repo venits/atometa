@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+
+          # ── Windows (MSVC) ─────────────────────────────────────────────
+          - name: Windows (MSVC x64)
+            os: windows-latest
+            preset: windows-msvc
+            triplet: x64-windows-static
+            cmake_extra: >-
+              -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+              -DVCPKG_TARGET_TRIPLET=x64-windows-static
+
+          # ── Linux (GCC) ────────────────────────────────────────────────
+          - name: Linux (GCC x64)
+            os: ubuntu-24.04
+            preset: linux-gcc
+            triplet: x64-linux
+            cmake_extra: >-
+              -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
+              -DVCPKG_TARGET_TRIPLET=x64-linux
+
+          # ── macOS (Clang arm64) ────────────────────────────────────────
+          - name: macOS (Clang arm64)
+            os: macos-14
+            preset: macos-clang
+            triplet: arm64-osx
+            cmake_extra: >-
+              -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
+              -DVCPKG_TARGET_TRIPLET=arm64-osx
+
+    # ── Steps ─────────────────────────────────────────────────────────────
+    steps:
+
+      # 1 — Checkout
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # 2 — Setup vcpkg (with cache)
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgJsonGlob: vcpkg.json
+          # Cache key includes OS + triplet + hash of vcpkg.json
+          # Automatically invalidated when dependencies change
+          runVcpkgInstall: true
+
+      # 3 — Linux system deps (OpenGL + display for GLFW headless)
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libx11-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxext-dev \
+            xvfb \
+            ninja-build
+
+      # 4 — macOS system deps
+      - name: Install macOS system deps
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      # 5 — Windows: ensure Ninja available
+      - name: Install Ninja (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ninja --no-progress -y
+
+      # 6 — Configure
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -B build -S . \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            ${{ matrix.cmake_extra }}
+
+      # 7 — Build
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Debug --parallel
+
+      # 8 — Upload artifacts
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: atometa-${{ matrix.preset }}-debug
+          path: |
+            build/bin/
+            build/lib/
+          retention-days: 7
