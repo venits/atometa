@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [ main, develop ]
-    tags:     [ 'v*.*.*' ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main, develop ]
 
@@ -15,206 +15,80 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-
     strategy:
       fail-fast: false
       matrix:
         include:
-
-          # ── Windows (MSVC) ────────────────────────────────────────────
-          - name: Windows (MSVC x64)
+          - name: Windows (x64)
             os: windows-latest
             preset: windows-msvc
             triplet: x64-windows-static
-            artifact_name: atometa-windows-x64
-            # Force MSVC — MinGW cannot link MSVC-built vcpkg libs (vc143)
-            cc: cl
-            cxx: cl
-
-          # ── Linux (GCC) ───────────────────────────────────────────────
-          - name: Linux (GCC x64)
+          - name: Linux (x64)
             os: ubuntu-24.04
             preset: linux-gcc
             triplet: x64-linux
-            artifact_name: atometa-linux-x64
-
-          # ── macOS (Clang arm64) ───────────────────────────────────────
-          - name: macOS (Clang arm64)
+          - name: macOS (arm64)
             os: macos-14
             preset: macos-clang
-            triplet: arm64-osx-dynamic
-            artifact_name: atometa-macos-arm64
+            triplet: arm64-osx
 
     steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
 
-      # 1 — Checkout
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      # 2 — Linux: system deps BEFORE vcpkg
-      - name: Install Linux system deps
+      - name: Install system dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            build-essential ninja-build pkg-config \
-            libgl1-mesa-dev libglu1-mesa-dev \
-            libx11-dev libxrandr-dev libxinerama-dev \
-            libxcursor-dev libxi-dev libxext-dev \
-            libwayland-dev libxkbcommon-dev xvfb
-
-      # 3 — macOS: system deps BEFORE vcpkg
-      - name: Install macOS system deps
+          sudo apt-get install -y --no-install-recommends build-essential ninja-build pkg-config libgl1-mesa-dev libglu1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev libwayland-dev libxkbcommon-dev
+      
+      - name: Install Ninja (macOS)
         if: runner.os == 'macOS'
         run: brew install ninja pkg-config
 
-      # 4 — Windows: activate MSVC + Ninja
-      - name: Setup MSVC (Windows)
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Install Ninja (Windows)
-        if: runner.os == 'Windows'
-        run: choco install ninja --no-progress -y
-
-      # 5 — Setup vcpkg
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgJsonGlob: vcpkg.json
           runVcpkgInstall: true
-        env:
-          VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
-          VCPKG_MAX_CONCURRENCY: "2"
-          # macOS arm64: required to use system tools instead of downloading binaries
-          VCPKG_FORCE_SYSTEM_BINARIES: ${{ runner.os == 'macOS' && '1' || '' }}
+          additionalCachedPaths: ${{ github.workspace }}/vcpkg_installed
 
-      # 6 — Configure (Debug on PR/push, Release on tag)
-      - name: Configure
+      - name: Configure & Build
         shell: bash
         run: |
-          BUILD_TYPE=${{ startsWith(github.ref, 'refs/tags/') && 'Release' || 'Debug' }}
-          echo "BUILD_TYPE=$BUILD_TYPE" >> $GITHUB_ENV
-
-          # On Windows: explicitly point CMake to MSVC cl.exe
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            export CC=cl
-            export CXX=cl
-          fi
-
-          cmake -B build -S . \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
-            -DATOMETA_USE_PCH=OFF
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+          cmake --build build --config Release --parallel
 
-      # 7 — Build
-      - name: Build
-        shell: bash
-        run: cmake --build build --config ${{ env.BUILD_TYPE }} --parallel
-
-      # 8 — Package artifacts
-      - name: Package
+      - name: Package artifacts
         shell: bash
         run: |
-          mkdir -p dist/${{ matrix.artifact_name }}
-          cp -r build/bin/  dist/${{ matrix.artifact_name }}/
-          cp -r assets/     dist/${{ matrix.artifact_name }}/assets/
-          # Remove large/binary model files from release package
-          rm -f dist/${{ matrix.artifact_name }}/assets/models/*.glb \
-                dist/${{ matrix.artifact_name }}/assets/models/*.obj \
-                dist/${{ matrix.artifact_name }}/assets/models/*.fbx || true
+          mkdir -p dist
+          tar -czf dist/atometa-${{ runner.os }}-${{ matrix.triplet }}.tar.gz -C build/bin .
 
-      # 9 — Upload build artifact (always)
-      - name: Upload artifact
+      - name: Generate Hash
+        shell: bash
+        run: |
+          cd dist
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum *.tar.gz > hashes.sha256
+          else
+            shasum -a 256 *.tar.gz > hashes.sha256
+          fi
+          
+      - name: Upload binaries
         uses: actions/upload-artifact@v4
-        if: success()
         with:
-          name: ${{ matrix.artifact_name }}-${{ env.BUILD_TYPE }}
-          path: dist/${{ matrix.artifact_name }}/
+          name: build-${{ matrix.preset }}
+          path: dist/*
           retention-days: 7
 
-      # 10 — Upload failure logs
-      - name: Upload failure logs
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: logs-${{ matrix.preset }}
-          path: |
-            build/CMakeFiles/CMakeOutput.log
-            build/CMakeFiles/CMakeError.log
-            ${{ github.workspace }}/vcpkg/buildtrees/**/config-*.log
-          retention-days: 3
-
-  # ── Release job — runs only on version tags ──────────────────────────────
-  release:
-    name: Publish GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-
-    permissions:
-      contents: write   # required to create releases and upload assets
-
-    steps:
-
-      # 1 — Download all platform artifacts
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: atometa-windows-x64-Release
-          path: release/windows
-
-      - name: Download Linux artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: atometa-linux-x64-Release
-          path: release/linux
-
-      - name: Download macOS artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: atometa-macos-arm64-Release
-          path: release/macos
-
-      # 2 — Zip each platform
-      - name: Zip artifacts
-        run: |
-          cd release
-          zip -r atometa-windows-x64.zip   windows/
-          zip -r atometa-linux-x64.zip     linux/
-          zip -r atometa-macos-arm64.zip   macos/
-
-      # 3 — Create GitHub Release + upload zips
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name }}
-          name: "Atometa ${{ github.ref_name }}"
+          files: dist/*
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}  # v1.0.0-beta → prerelease
-          body: |
-            ## Atometa ${{ github.ref_name }}
-
-            ### Downloads
-            | Platform | File |
-            |---|---|
-            | Windows x64 | `atometa-windows-x64.zip` |
-            | Linux x64   | `atometa-linux-x64.zip`   |
-            | macOS arm64 | `atometa-macos-arm64.zip` |
-
-            ### How to run
-            Extract the zip and run `Atometa` / `Atometa.exe` from the `bin/` folder.
-            Assets folder must be in the same directory as the executable.
-
-            ### What's new
-            See [CHANGELOG](https://github.com/khadrx/atometa/commits/${{ github.ref_name }}) for full history.
-          files: |
-            release/atometa-windows-x64.zip
-            release/atometa-linux-x64.zip
-            release/atometa-macos-arm64.zip
+          prerelease: false
