@@ -11,10 +11,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# ── vcpkg binary cache (compiled packages cached across ALL runs) ───────────
 env:
   VCPKG_COMMIT: af752f21c9d79ba3df9cb0250ce2233933f58486
-  VCPKG_ROOT:   ${{ github.workspace }}/vcpkg
+  # VCPKG_ROOT is reserved by Visual Studio — use VCPKG_DIR instead
+  VCPKG_DIR: ${{ github.workspace }}/vcpkg-src
 
 jobs:
   build:
@@ -61,29 +61,30 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install ninja --no-progress
 
-      # ── 3. MSVC developer environment (Windows only) ───────────────────────
-      # Must run BEFORE vcpkg so the compiler hash uses cl.exe, not MinGW.
-      # This is what prevents the __CxxFrameHandler4 / __std_terminate ABI errors.
+      # ── 3. MSVC environment (Windows only) ────────────────────────────────
+      # Must come BEFORE vcpkg so compiler hash = cl.exe, not MinGW.
+      # Also sets VCPKG_ROOT to VS's built-in vcpkg — we intentionally
+      # shadow it with VCPKG_DIR to avoid the path collision.
       - name: Setup MSVC developer environment
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
-      # ── 4. Cache vcpkg tool itself ─────────────────────────────────────────
+      # ── 4. Cache vcpkg tool ────────────────────────────────────────────────
       - name: Cache vcpkg bootstrap
         uses: actions/cache@v4
-        id: cache-vcpkg-bootstrap
+        id: vcpkg-bootstrap
         with:
-          path: ${{ env.VCPKG_ROOT }}
+          path: ${{ env.VCPKG_DIR }}
           key: vcpkg-bootstrap-${{ runner.os }}-${{ env.VCPKG_COMMIT }}
 
       - name: Bootstrap vcpkg
-        if: steps.cache-vcpkg-bootstrap.outputs.cache-hit != 'true'
+        if: steps.vcpkg-bootstrap.outputs.cache-hit != 'true'
         shell: bash
         run: |
-          git clone https://github.com/microsoft/vcpkg.git "$VCPKG_ROOT"
-          cd "$VCPKG_ROOT"
+          git clone https://github.com/microsoft/vcpkg.git "${{ env.VCPKG_DIR }}"
+          cd "${{ env.VCPKG_DIR }}"
           git checkout "$VCPKG_COMMIT"
           if [ "$RUNNER_OS" = "Windows" ]; then
             ./bootstrap-vcpkg.bat -disableMetrics
@@ -92,26 +93,25 @@ jobs:
           fi
 
       # ── 5. Cache installed packages ────────────────────────────────────────
-      # Key includes vcpkg.json hash so cache invalidates when deps change
-      - name: Cache vcpkg installed packages
+      - name: Cache vcpkg packages
         uses: actions/cache@v4
-        id: cache-vcpkg-packages
+        id: vcpkg-packages
         with:
           path: ${{ github.workspace }}/vcpkg_installed
-          key: vcpkg-packages-${{ runner.os }}-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          key: vcpkg-pkgs-${{ runner.os }}-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
           restore-keys: |
-            vcpkg-packages-${{ runner.os }}-${{ matrix.triplet }}-
+            vcpkg-pkgs-${{ runner.os }}-${{ matrix.triplet }}-
 
       # ── 6. Install dependencies ────────────────────────────────────────────
       - name: Install vcpkg dependencies
-        if: steps.cache-vcpkg-packages.outputs.cache-hit != 'true'
+        if: steps.vcpkg-packages.outputs.cache-hit != 'true'
         shell: bash
         env:
           VCPKG_FORCE_SYSTEM_BINARIES: ${{ runner.os == 'macOS' && '1' || '' }}
         run: |
-          "$VCPKG_ROOT/vcpkg" install \
+          "${{ env.VCPKG_DIR }}/vcpkg" install \
             --triplet=${{ matrix.triplet }} \
-            --vcpkg-root="$VCPKG_ROOT" \
+            --vcpkg-root="${{ env.VCPKG_DIR }}" \
             --x-install-root="${{ github.workspace }}/vcpkg_installed" \
             --x-manifest-root="${{ github.workspace }}"
 
@@ -126,7 +126,7 @@ jobs:
           cmake -B build -S . -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DATOMETA_USE_PCH=OFF \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DCMAKE_TOOLCHAIN_FILE="${{ env.VCPKG_DIR }}/scripts/buildsystems/vcpkg.cmake" \
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
             -DVCPKG_INSTALLED_DIR="${{ github.workspace }}/vcpkg_installed"
 
